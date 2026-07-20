@@ -1,0 +1,34 @@
+# ------------------------------------------------------------------
+#  Hlídač nájemních bytů — nastavení hledání
+#  Zkopíruj tento soubor na  config.yaml  a uprav podle sebe:
+#     cp config.example.yaml config.yaml     (Mac/Linux)
+#     copy config.example.yaml config.yaml   (Windows)
+# ------------------------------------------------------------------
+
+hledani:
+  mesto: "Hradec Králové"      # hledá se POUZE v tomto městě (vč. jeho čtvrtí), okolní obce se vyřadí
+  max_cena: 18000              # max. CELKOVÁ měsíční cena v Kč = nájem + poplatky/energie (pokud jsou známy)
+  min_plocha: 30               # minimální plocha v m² (menší se nevyřadí, jen dostanou nižší skóre)
+  min_dispozice: "1+kk"        # nejmenší akceptovaná dispozice (1+kk, 1+1, 2+kk, …)
+
+  # Volitelně povol i okolní obce (default prázdné = opravdu jen město výše).
+  # Např.:  okoli: ["Třebechovice pod Orebem", "Předměřice nad Labem"]
+  okoli: []
+
+  # Venkovní prostor (balkon / terasa / lodžie / zahrada) je HLAVNÍ priorita.
+  # false = byty bez venkovního prostoru se nevyřadí, jen se řadí níž.
+  # true  = zobrazí se POUZE byty s venkovním prostorem.
+  vyzaduj_venkovni_prostor: false
+
+# Které portály prohledávat (můžeš kterýkoli vypnout na false)
+zdroje:
+  sreality: true
+  bezrealitky: true
+  ulovdomov: true
+  idnes: true
+
+# Chování
+provoz:
+  max_stran_na_zdroj: 10       # kolik stránek výsledků max projít u každého portálu
+  detail_cache_dny: 14         # jak dlouho držet stažený detail bytu v cache (šetří požadavky)
+  posilat_telegram: true       # posílat notifikace na Telegram (jinak jen dashboard)

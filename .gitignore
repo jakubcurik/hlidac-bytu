@@ -1,0 +1,24 @@
+# Konfigurace s citlivými údaji (každý si vytvoří vlastní z .example souborů)
+config.yaml
+.env
+
+# Data a výstupy
+output/
+*.db
+state.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright (pokud by se instaloval)
+.playwright/

@@ -1,0 +1,1 @@
+"""Scrapery jednotlivých realitních portálů."""

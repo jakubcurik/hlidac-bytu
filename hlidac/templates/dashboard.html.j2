@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Byty v {{ cfg.search.mesto }} — hlídač</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --text:#1a1d21; --muted:#6b7280; --line:#e6e8eb;
+    --accent:#2563eb; --good:#16a34a; --good-bg:#dcfce7; --warn:#b45309; --warn-bg:#fef3c7;
+    --new:#db2777; --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1115; --card:#181b21; --text:#e7e9ee; --muted:#9aa1ac; --line:#272b33;
+      --accent:#60a5fa; --good:#4ade80; --good-bg:#0f3d24; --warn:#fbbf24; --warn-bg:#3a2c07;
+      --new:#f472b6; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45}
+  a{color:inherit}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px 16px 60px}
+  header h1{margin:0 0 4px;font-size:1.6rem}
+  header .sub{color:var(--muted);font-size:.9rem}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:6px 12px;font-size:.85rem;box-shadow:var(--shadow)}
+  .chip b{color:var(--accent)}
+  .toolbar{position:sticky;top:0;z-index:5;background:var(--bg);
+    padding:12px 0;margin:6px 0 18px;border-bottom:1px solid var(--line);
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .toolbar input[type=search],.toolbar select{
+    background:var(--card);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;font-size:.9rem}
+  .toolbar input[type=search]{flex:1;min-width:180px}
+  .pill{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:.85rem}
+  .pill input{accent-color:var(--accent)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .12s ease}
+  .card:hover{transform:translateY(-2px)}
+  .thumb{position:relative;aspect-ratio:16/10;background:#d1d5db22;overflow:hidden}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb .noimg{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.85rem}
+  .score{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;
+    font-weight:700;font-size:.8rem;padding:4px 9px;border-radius:999px;box-shadow:var(--shadow)}
+  .src{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.62);color:#fff;
+    font-size:.72rem;padding:3px 8px;border-radius:6px}
+  .ribbon{position:absolute;bottom:10px;left:10px;background:var(--new);color:#fff;
+    font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:6px;letter-spacing:.03em}
+  .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .price{font-size:1.25rem;font-weight:750}
+  .price small{font-size:.8rem;font-weight:500;color:var(--muted)}
+  .meta{color:var(--muted);font-size:.85rem}
+  .addr{font-size:.85rem}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+  .badge{font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid transparent;white-space:nowrap}
+  .badge.out{background:var(--good-bg);color:var(--good);border-color:var(--good)}
+  .badge.warn{background:var(--warn-bg);color:var(--warn)}
+  .badge.info{background:var(--line);color:var(--muted)}
+  .summary{font-size:.82rem;font-style:italic;color:var(--text);opacity:.85}
+  .onetime{font-size:.76rem;color:var(--muted)}
+  .reasons{list-style:none;margin:2px 0 0;padding:0;font-size:.78rem;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+  .foot{margin-top:auto;padding-top:8px}
+  .foot a{display:inline-block;text-decoration:none;color:var(--accent);font-weight:600;font-size:.88rem}
+  .empty{text-align:center;color:var(--muted);padding:60px 20px}
+  footer{margin-top:40px;color:var(--muted);font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏡 Byty v {{ cfg.search.mesto }}</h1>
+    <div class="sub">
+      do {{ cfg.search.max_cena|tisic }} Kč/měs vč. poplatků · min. {{ cfg.search.min_plocha|int }} m² ·
+      od {{ cfg.search.min_dispozice }} · aktualizováno {{ generated }}
+    </div>
+    <div class="chips">
+      <span class="chip"><b>{{ stats.total }}</b> bytů celkem</span>
+      {% if stats.new %}<span class="chip">🆕 <b>{{ stats.new }}</b> nových</span>{% endif %}
+      <span class="chip">🌿 <b>{{ stats.outdoor }}</b> s venkovním prostorem</span>
+      {% for src, n in stats.by_source.items() %}<span class="chip">{{ src }}: <b>{{ n }}</b></span>{% endfor %}
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="🔎 hledat v adrese / názvu…">
+    <label class="pill"><input type="checkbox" id="onlyOut"> jen s venkovním prostorem 🌿</label>
+    <label class="pill"><input type="checkbox" id="onlyNew"> jen nové 🆕</label>
+    <select id="sort">
+      <option value="score">Řadit: nejlepší shoda</option>
+      <option value="price">Řadit: nejlevnější</option>
+      <option value="area">Řadit: největší plocha</option>
+    </select>
+  </div>
+
+  <div class="grid" id="grid">
+    {% for c in cards %}
+    <article class="card" data-source="{{ c.source }}" data-outdoor="{{ 1 if c.outdoor else 0 }}"
+             data-new="{{ 1 if c.is_new else 0 }}" data-score="{{ c.score }}"
+             data-price="{{ c.total_price or c.price or 999999 }}" data-area="{{ c.area or 0 }}"
+             data-text="{{ (c.title ~ ' ' ~ c.address)|lower }}">
+      <div class="thumb">
+        {% if c.image %}<img loading="lazy" src="{{ c.image }}" alt="">{% else %}<div class="noimg">bez fotky</div>{% endif %}
+        <span class="score">{{ c.score }}</span>
+        <span class="src">{{ c.source_label }}</span>
+        {% if c.is_new %}<span class="ribbon">NOVÉ</span>{% endif %}
+      </div>
+      <div class="body">
+        {% if c.fees_known %}
+        <div class="price">{{ c.total_price|tisic }} Kč <small>/ měs {% if c.fees_estimated %}(odhad vč. poplatků){% else %}vč. poplatků{% endif %}</small></div>
+        <div class="meta">nájem {{ c.price|tisic }} + poplatky {{ c.fees|tisic }}{% if c.fees_estimated %} (z popisu){% endif %}</div>
+        {% else %}
+        <div class="price">{{ c.price|tisic }} Kč <small>/ měs + poplatky</small></div>
+        {% endif %}
+        <div class="meta">{{ c.disposition }}{% if c.area %} · {{ c.area }} m²{% endif %}{% if c.price_per_m2 %} · {{ c.price_per_m2 }} Kč/m²{% if c.fees_known %} vč. popl.{% endif %}{% endif %}</div>
+        <div class="addr">📍 {{ c.address }}</div>
+        {% if c.summary %}<div class="summary">💬 {{ c.summary }}</div>{% endif %}
+        {% if c.deposit or c.commission %}
+        <div class="onetime">💼 jednorázově:{% if c.deposit %} kauce {{ c.deposit|tisic }} Kč{% endif %}{% if c.commission %}{% if c.deposit %} ·{% endif %} provize {{ c.commission|tisic }} Kč{% endif %}</div>
+        {% endif %}
+        <div class="badges">
+          {% if c.outdoor %}<span class="badge out">🌿 {{ c.outdoor_label }}</span>{% endif %}
+          {% if not c.fees_known %}<span class="badge warn">poplatky neuvedeny</span>{% endif %}
+          {% if c.building_condition %}<span class="badge info">{{ c.building_condition }}</span>{% endif %}
+          {% if c.building_type and 'anel' in c.building_type %}<span class="badge warn">panel</span>
+          {% elif c.building_type %}<span class="badge info">{{ c.building_type }}</span>{% endif %}
+          {% if c.available_from %}<span class="badge info">od {{ c.available_from }}</span>{% endif %}
+        </div>
+        {% if c.reasons %}
+        <ul class="reasons">{% for r in c.reasons[:3] %}<li>{{ r }}</li>{% endfor %}</ul>
+        {% endif %}
+        <div class="foot"><a href="{{ c.url }}" target="_blank" rel="noopener">Zobrazit inzerát →</a></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <div class="empty" id="empty" style="display:none">Nic neodpovídá filtru 🤷</div>
+
+  <footer>
+    Vygeneroval Hlídač nájemních bytů · data ze Sreality, Bezrealitky, Ulovdomov a iDNES Reality.<br>
+    Skóre je jen pomůcka pro řazení — vždy si inzerát ověř na webu portálu.
+  </footer>
+</div>
+
+<script>
+  const grid = document.getElementById('grid');
+  const cards = Array.from(grid.children);
+  const q = document.getElementById('q');
+  const onlyOut = document.getElementById('onlyOut');
+  const onlyNew = document.getElementById('onlyNew');
+  const sortSel = document.getElementById('sort');
+  const empty = document.getElementById('empty');
+
+  function apply(){
+    const term = q.value.trim().toLowerCase();
+    let visible = 0;
+    cards.forEach(c => {
+      let ok = true;
+      if (term && !c.dataset.text.includes(term)) ok = false;
+      if (onlyOut.checked && c.dataset.outdoor !== '1') ok = false;
+      if (onlyNew.checked && c.dataset.new !== '1') ok = false;
+      c.style.display = ok ? '' : 'none';
+      if (ok) visible++;
+    });
+    empty.style.display = visible ? 'none' : 'block';
+  }
+
+  function sortCards(){
+    const key = sortSel.value;
+    const arr = cards.slice().sort((a,b) => {
+      if (key === 'price') return (+a.dataset.price) - (+b.dataset.price);
+      if (key === 'area')  return (+b.dataset.area) - (+a.dataset.area);
+      return (+b.dataset.score) - (+a.dataset.score);
+    });
+    arr.forEach(c => grid.appendChild(c));
+  }
+
+  [q, onlyOut, onlyNew].forEach(el => el.addEventListener('input', apply));
+  sortSel.addEventListener('change', sortCards);
+</script>
+</body>
+</html>

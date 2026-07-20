@@ -1,0 +1,14 @@
+# Hlídač nájemních bytů — závislosti
+# Instalace:  pip install -r requirements.txt
+
+httpx>=0.27          # HTTP klient (scraping API i HTML)
+PyYAML>=6.0          # čtení config.yaml
+Jinja2>=3.1          # generování HTML dashboardu
+lxml>=5.0            # rychlý parser HTML (iDNES)
+beautifulsoup4>=4.12 # pohodlné hledání v HTML
+python-dotenv>=1.0   # načtení tokenů z .env
+tenacity>=8.0        # opakování požadavků při chybě sítě
+
+# VOLITELNÉ — jen pokud by některý portál začal blokovat čisté HTTP.
+# Není potřeba pro běžný provoz. Návod v README (sekce "Playwright fallback").
+# playwright>=1.44
