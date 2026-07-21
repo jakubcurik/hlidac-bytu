@@ -1,8 +1,9 @@
 # 🏡 Hlídač bytů
 
 Malý pomocník, který za tebe každý den projde inzeráty s byty k pronájmu,
-vybere jen ty, co dávají smysl (v Hradci Králové, do tvého rozpočtu, s balkonem
-nebo zahradou), spočítá **skutečnou cenu i s poplatky** a přehledně ti je ukáže.
+vybere jen ty, co dávají smysl (v Hradci Králové, do tvého rozpočtu), spočítá
+**skutečnou cenu i s poplatky** a přehledně ti je ukáže — byty s balkonem,
+terasou, lodžií nebo zahradou řadí nahoru.
 
 Nemusíš nic umět. Stačí popořadě udělat kroky níže. Zabere to asi **15 minut** a
 většinu z toho jen čekáš, až se něco stáhne. 💛
@@ -93,8 +94,9 @@ Vlož (pak Enter):
 cp config.example.yaml config.yaml
 ```
 
-A je hotovo! Ve výchozím stavu hledá **byty v Hradci Králové do 18 000 Kč měsíčně
-(i s poplatky), s balkonem, terasou nebo zahradou**. Když bys někdy chtěla něco
+A je hotovo! Ve výchozím stavu hledá **byty v Hradci Králové do 20 000 Kč měsíčně
+(i s poplatky)**. V přehledu si pak přepínačem zvolíš, jestli chceš vidět jen byty
+s balkonem/terasou/lodžií/zahradou, nebo úplně všechny. Když bys někdy chtěla něco
 změnit (třeba cenu), napiš mi, ukážu ti kde.
 
 ---

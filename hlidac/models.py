@@ -183,6 +183,7 @@ class Listing:
     floor: int | None = None
     elevator: bool | None = None
     available_from: str | None = None
+    listed_at: str | None = None        # datum vložení/aktualizace inzerátu NA PORTÁLU (YYYY-MM-DD)
 
     # Doplněno pipeline později
     first_seen: str = ""

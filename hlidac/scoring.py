@@ -74,16 +74,28 @@ _RESERVED_RE = re.compile(
     r"|(?:rezervov|pronajat)\w*\.?\s*(?:dě?kuj|neaktuáln)",
     re.I,
 )
+# Zvíře/mazlíček — společný kmen pro pets regexy.
+_ANIMAL = r"(?:zvíř\w*|zvir\w*|mazlíč\w*|mazlic\w*)"
+# Preference proti zvířatům (NE výslovný zákaz): "ideálně bez mazlíčků", "raději bez zvířat".
+_PETS_PREF_RE = re.compile(
+    r"(?:ideáln\w*|idealn\w*|raději|radeji|spíše|spise|přednostn\w*|prednostn\w*|upřednost\w*|uprednost\w*)"
+    r"[^\n]{0,45}?bez\s+(?:domác\w*\s+)?" + _ANIMAL,  # tečka povolena kvůli zkratkám ("max. 2 osoby")
+    re.I,
+)
 # Jednoznačný zákaz mazlíčků.
 _PETS_BAN_RE = re.compile(
-    r"bez\s+(?:domác\w*\s+)?zvířat"
-    r"|zvířat\w*\s+(?:nejsou|není)\s+(?:povolen|vítán|možn|dovolen)"
-    r"|(?:zákaz|nelze|nemožn\w*)\s+(?:chov\w*|drž\w*)?\s*(?:domác\w*\s+)?zvířat"
-    r"|zvířat\w*\s+zakázán|no\s+pets",
+    r"bez\s+(?:domác\w*\s+)?" + _ANIMAL
+    + r"|" + _ANIMAL + r"\s+(?:nejsou|není)\s+(?:povolen|vítán|možn|dovolen)"
+    + r"|(?:zákaz|zakaz|nelze|nemožn\w*|nevhodn\w*\s+pro)\s+(?:chov\w*|drž\w*)?\s*(?:domác\w*\s+)?" + _ANIMAL
+    + r"|" + _ANIMAL + r"\s+zakázán|no\s+pets",
     re.I,
 )
 # Mazlíčci po dohodě / podmíněně.
-_PETS_MAYBE_RE = re.compile(r"zvířat\w*.{0,15}(?:po\s+dohodě|dle\s+dohody)|(?:po|dle)\s+dohodě.{0,15}zvířat", re.I)
+_PETS_MAYBE_RE = re.compile(
+    _ANIMAL + r".{0,15}(?:po\s+dohodě|dle\s+dohody|po\s+domluvě)"
+    r"|(?:po|dle)\s+(?:dohodě|domluvě).{0,15}" + _ANIMAL,
+    re.I,
+)
 
 
 def estimate_fees_by_area(listing: Listing) -> int | None:
@@ -138,7 +150,10 @@ def infer_flags(listing: Listing) -> None:
     if not listing.reserved and _RESERVED_RE.search(text):
         listing.reserved = True
     if listing.pets is None:
-        if _PETS_BAN_RE.search(text):
+        # pořadí je důležité: "ideálně bez mazlíčků" by jinak spadlo do zákazu
+        if _PETS_PREF_RE.search(text):
+            listing.pets = "nezadouci"
+        elif _PETS_BAN_RE.search(text):
             listing.pets = "zakaz"
         elif _PETS_MAYBE_RE.search(text):
             listing.pets = "po_dohode"
@@ -268,8 +283,14 @@ def score_listing(listing: Listing, cfg: Config) -> None:
             reasons.append(f"⛔ {kw}")
             break
 
-    # --- mazlíčci (jen informativně; filtruje se v hard filteru) ---
-    if listing.pets == "po_dohode":
+    # --- mazlíčci (informace + jemná penalizace; tvrdě filtruje jen config "jen_zakaz"/"vse") ---
+    if listing.pets == "zakaz":
+        score -= 6
+        reasons.append("⛔ inzerát uvádí: bez zvířat")
+    elif listing.pets == "nezadouci":
+        score -= 3
+        reasons.append("🐾 zvířata raději ne (dle inzerátu)")
+    elif listing.pets == "po_dohode":
         reasons.append("🐾 mazlíčci po dohodě")
     elif listing.pets == "povoleno":
         reasons.append("🐾 mazlíčci povoleni")

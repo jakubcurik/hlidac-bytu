@@ -62,8 +62,8 @@
   .thumb{position:relative;aspect-ratio:16/10;background:#d1d5db22;overflow:hidden}
   .thumb img{width:100%;height:100%;object-fit:cover;display:block}
   .thumb .noimg{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.85rem}
-  .score{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;
-    font-weight:700;font-size:.8rem;padding:4px 9px;border-radius:999px;box-shadow:var(--shadow)}
+  .when{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;
+    font-weight:700;font-size:.78rem;padding:4px 10px;border-radius:999px;box-shadow:var(--shadow)}
   .src{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.62);color:#fff;
     font-size:.72rem;padding:3px 8px;border-radius:6px}
   .ribbon{position:absolute;bottom:10px;left:10px;background:var(--new);color:#fff;
@@ -110,6 +110,7 @@
       <input type="search" id="q" placeholder="🔎 hledat v adrese / názvu…">
       <select id="sort">
         <option value="score">Řadit: nejlepší shoda</option>
+        <option value="new">Řadit: nejnovější</option>
         <option value="price">Řadit: nejlevnější (celkem)</option>
         <option value="area">Řadit: největší plocha</option>
         <option value="ppm">Řadit: nejlevnější za m²</option>
@@ -131,7 +132,8 @@
         <option value="panel">🏢 panelová</option>
         <option value="jine">jiná / neuvedeno</option>
       </select>
-      <label class="pill"><input type="checkbox" id="onlyOut" {% if cfg.search.vyzaduj_venkovni_prostor %}checked{% endif %}> jen s venkovním 🌿</label>
+      <label class="pill"><input type="checkbox" id="onlyOut" checked> jen s venkovním 🌿</label>
+      <label class="pill"><input type="checkbox" id="noPetBan"> 🐾 skrýt „bez zvířat"</label>
       <label class="pill"><input type="checkbox" id="onlyCertain"> jen jistá cena (bez odhadů)</label>
       <label class="pill"><input type="checkbox" id="onlyNew"> jen nové 🆕</label>
       <button class="btn" id="reset">↺ reset filtrů</button>
@@ -159,10 +161,12 @@
              data-disp="{{ c.disposition }}"
              data-building="{{ c.building_class }}"
              data-certain="{{ 1 if (c.fees_known and not c.fees_estimated) else 0 }}"
+             data-age="{{ c.age_days }}"
+             data-pets="{{ c.pets or '' }}"
              data-text="{{ (c.title ~ ' ' ~ c.address)|lower }}">
       <div class="thumb">
         {% if c.image %}<img loading="lazy" src="{{ c.image }}" alt="">{% else %}<div class="noimg">bez fotky</div>{% endif %}
-        <span class="score">{{ c.score }}</span>
+        {% if c.age_label %}<span class="when" title="{{ c.age_title }}">🕐 {{ c.age_label }}</span>{% endif %}
         <span class="src">{{ c.source_label }}</span>
         {% if c.is_new %}<span class="ribbon">NOVÉ</span>{% endif %}
       </div>
@@ -190,12 +194,13 @@
           {% elif c.outdoor %}<span class="badge info">jen {{ c.outdoor_label }}</span>{% endif %}
           {% if c.fees_estimated %}<span class="badge warn">odhad ceny</span>{% endif %}
           {% if not c.fees_known %}<span class="badge warn">poplatky neuvedeny</span>{% endif %}
-          {% if c.pets == 'po_dohode' %}<span class="badge info">🐾 po dohodě</span>
+          {% if c.pets == 'zakaz' %}<span class="badge warn">🐾 uvádí: bez zvířat</span>
+          {% elif c.pets == 'nezadouci' %}<span class="badge warn">🐾 raději bez zvířat</span>
+          {% elif c.pets == 'po_dohode' %}<span class="badge info">🐾 po dohodě</span>
           {% elif c.pets == 'povoleno' %}<span class="badge out">🐾 mazlíčci OK</span>{% endif %}
           {% if c.building_condition %}<span class="badge info">{{ c.building_condition }}</span>{% endif %}
           {% if c.building_class == 'panel' %}<span class="badge warn">panel</span>
           {% elif c.building_type %}<span class="badge info">{{ c.building_type }}</span>{% endif %}
-          {% if c.available_from %}<span class="badge info">od {{ c.available_from }}</span>{% endif %}
         </div>
         {% if c.reasons %}
         <ul class="reasons">{% for r in c.reasons[:3] %}<li>{{ r }}</li>{% endfor %}</ul>
@@ -222,6 +227,7 @@
   const areaMin = document.getElementById('areaMin');
   const building = document.getElementById('building');
   const onlyOut = document.getElementById('onlyOut');
+  const noPetBan = document.getElementById('noPetBan');
   const onlyCertain = document.getElementById('onlyCertain');
   const onlyNew = document.getElementById('onlyNew');
   const sortSel = document.getElementById('sort');
@@ -255,6 +261,7 @@
       if (bld && c.dataset.building !== bld) ok = false;
       if (disps.length && !disps.includes(c.dataset.disp)) ok = false;
       if (onlyOut.checked && c.dataset.outdoor !== '1') ok = false;
+      if (noPetBan.checked && c.dataset.pets === 'zakaz') ok = false;
       if (onlyCertain.checked && c.dataset.certain !== '1') ok = false;
       if (onlyNew.checked && c.dataset.new !== '1') ok = false;
       c.style.display = ok ? '' : 'none';
@@ -267,6 +274,7 @@
   function sortCards(){
     const key = sortSel.value;
     const arr = cards.slice().sort((a,b) => {
+      if (key === 'new')   return (+a.dataset.age) - (+b.dataset.age);
       if (key === 'price') return (+a.dataset.price) - (+b.dataset.price);
       if (key === 'area')  return (+b.dataset.area) - (+a.dataset.area);
       if (key === 'ppm')   return (+a.dataset.ppm) - (+b.dataset.ppm);
@@ -276,12 +284,12 @@
   }
 
   dchips.forEach(d => d.addEventListener('click', () => { d.classList.toggle('active'); apply(); }));
-  [q, priceMax, areaMin, building, onlyOut, onlyCertain, onlyNew].forEach(el => el.addEventListener('input', apply));
+  [q, priceMax, areaMin, building, onlyOut, noPetBan, onlyCertain, onlyNew].forEach(el => el.addEventListener('input', apply));
   sortSel.addEventListener('change', sortCards);
   document.getElementById('reset').addEventListener('click', () => {
     q.value = ''; priceMax.value = priceMax.max; areaMin.value = 0; building.value = '';
-    onlyOut.checked = {{ 'true' if cfg.search.vyzaduj_venkovni_prostor else 'false' }};
-    onlyCertain.checked = false; onlyNew.checked = false;
+    onlyOut.checked = true;   // venkovní prostor je hlavní priorita — po resetu zpět na "jen s venkovním"
+    noPetBan.checked = false; onlyCertain.checked = false; onlyNew.checked = false;
     dchips.forEach(d => d.classList.remove('active'));
     apply();
   });

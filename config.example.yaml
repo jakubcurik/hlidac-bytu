@@ -7,21 +7,21 @@
 
 hledani:
   mesto: "Hradec Králové"      # hledá se POUZE v tomto městě (vč. jeho čtvrtí), okolní obce se vyřadí
-  max_cena: 18000              # max. CELKOVÁ měsíční cena v Kč = nájem + poplatky/energie (i odhadnuté)
+  max_cena: 20000              # max. CELKOVÁ měsíční cena v Kč = nájem + poplatky/energie (i odhadnuté)
   min_plocha: 30               # minimální plocha v m² (menší se nevyřadí, jen dostanou nižší skóre)
   min_dispozice: "1+kk"        # nejmenší akceptovaná dispozice (1+kk, 1+1, 2+kk, …)
 
-  # Venkovní prostor je HLAVNÍ priorita.
-  # true  = zobrazí se POUZE byty s venkovním prostorem (typy níže).
-  # false = byty bez venkovního prostoru se nevyřadí, jen se řadí níž.
-  vyzaduj_venkovni_prostor: true
-  # Které typy se počítají jako plnohodnotný venkovní prostor (lodžie = zapuštěný balkon,
-  # ve výchozím stavu se NEbere). Můžeš přidat "lodzie", pokud ti nevadí.
-  venkovni_typy: ["balkon", "terasa", "zahrada"]
+  # Venkovní prostor (balkon/terasa/lodžie/zahrada) je HLAVNÍ priorita při řazení.
+  # false = byty bez něj se NEvyřazují — v přehledu je na ně přepínač "jen s venkovním".
+  # true  = byty bez venkovního prostoru se do přehledu vůbec nedostanou.
+  vyzaduj_venkovni_prostor: false
+  # Které typy se počítají jako venkovní prostor (lodžie = zapuštěný balkon, bere se taky).
+  venkovni_typy: ["balkon", "terasa", "lodzie", "zahrada"]
 
-  # Mazlíčci: "jen_zakaz" = vyřadí jen inzeráty s jasným zákazem zvířat (doporučeno),
-  #           "vse" = vyřadí i nejednoznačné ("po dohodě"), "vypnuto" = nefiltrovat.
-  mazlicci_filtr: "jen_zakaz"
+  # Mazlíčci: "vypnuto" = nevyřazovat, jen označit v přehledu (filtruje se tam přepínačem),
+  #           "jen_zakaz" = vyřadí inzeráty s jasným zákazem zvířat už při zpracování,
+  #           "vse" = vyřadí i nejednoznačné ("po dohodě").
+  mazlicci_filtr: "vypnuto"
 
   # Skrýt inzeráty označené jako rezervované / obsazené / již pronajaté.
   vyloucit_rezervovane: true

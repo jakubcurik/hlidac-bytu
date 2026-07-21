@@ -125,7 +125,7 @@ class SrealityScraper(Scraper):
     # --- doplnění detailu -------------------------------------------------
 
     def _enrich_detail(self, l: Listing, cfg: Config, http: Http, store: Store, city_seo: str) -> None:
-        cache_key = f"sreality:detail:{l.source_id}"
+        cache_key = f"sreality:detail:v3:{l.source_id}"  # v3: přibyla poznámka k ceně (priceNote)
         det = store.cache_get(cache_key, max_age_days=cfg.detail_cache_dny)
         if det is None:
             sub = l.disposition or "byt"
@@ -156,6 +156,9 @@ class SrealityScraper(Scraper):
         l.floor = p.get("floor")
         l.furnished = p.get("furnished")
         l.available_from = p.get("available_from")
+        l.listed_at = p.get("edited")  # datum vložení/poslední úpravy inzerátu na Sreality
+        if p.get("priceNote"):
+            l.price_note = p["priceNote"]  # "+ služby a energie 3.500,-Kč…" — čte ho LLM i fallback
         if p.get("fees"):
             l.fees = p["fees"]
 
@@ -189,5 +192,7 @@ class SrealityScraper(Scraper):
             "floor": params.get("floorNumber"),
             "furnished": name_of("furnished"),
             "available_from": params.get("readyDate"),
+            "edited": params.get("edited"),  # 'YYYY-MM-DD' — datum vložení/úpravy na portálu
+            "priceNote": params.get("priceNote"),  # poznámka k ceně — bývá tam částka za služby
             "fees": fees,
         }

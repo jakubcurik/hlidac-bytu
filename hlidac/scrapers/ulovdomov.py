@@ -174,6 +174,7 @@ class UlovdomovScraper(Scraper):
             description=o.get("description", "") or "",
             floor=o.get("floorLevel") if isinstance(o.get("floorLevel"), int) else None,
             available_from=o.get("availableFrom"),
+            listed_at=(str(o.get("published"))[:10] if o.get("published") else None),
         )
 
         # Venkovní prostor: balkon/terasa/lodžie ze strukturovaného convenience jsou spolehlivé.

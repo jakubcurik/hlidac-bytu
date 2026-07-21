@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -20,6 +20,25 @@ SOURCE_LABELS = {
     "ulovdomov": "Ulovdomov",
     "idnes": "iDNES Reality",
 }
+
+
+def _age(iso: str | None) -> tuple[int, str]:
+    """(stáří ve dnech, český popisek) z ISO data/času.
+    'dnes' / 'včera' / 'před X dny' / u starších konkrétní datum."""
+    try:
+        dt = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return 9999, ""
+    if dt.tzinfo is None:  # holé datum 'YYYY-MM-DD' z portálu — ber jako UTC den
+        dt = dt.replace(tzinfo=timezone.utc)
+    days = (datetime.now(timezone.utc).date() - dt.astimezone(timezone.utc).date()).days
+    if days <= 0:
+        return 0, "dnes"
+    if days == 1:
+        return 1, "včera"
+    if days <= 14:
+        return days, f"před {days} dny"
+    return days, f"{dt.day}. {dt.month}."
 
 
 def _building_class(building_type: str | None) -> str:
@@ -54,7 +73,16 @@ def render_dashboard(
     # data pro karty
     cards = []
     for l in listings:
+        # stáří: preferuj datum z portálu (listed_at), fallback = kdy ho hlídač poprvé zachytil
+        age_days, age_label = _age(l.listed_at or l.first_seen)
+        if l.listed_at:
+            age_title = f"na portál vloženo / upraveno {l.listed_at}"
+        else:
+            age_title = f"portál datum neuvádí — hlídač inzerát poprvé zachytil {(l.first_seen or '')[:10]}"
         cards.append({
+            "age_days": age_days,
+            "age_label": age_label,
+            "age_title": age_title,
             "key": l.key,
             "url": l.url,
             "title": l.title or f"{l.disposition} {l.city}".strip(),

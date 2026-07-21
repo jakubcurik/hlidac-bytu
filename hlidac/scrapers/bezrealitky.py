@@ -164,6 +164,8 @@ class BezrealitkyScraper(Scraper):
             building_condition=CONDITION_MAP.get(adv.get("condition") or ""),
             floor=adv.get("etage"),
             available_from=self._date(adv.get("availableFrom")),
+            # datum vložení Bezrealitky API anonymně nedává ("Access denied to this field"),
+            # listed_at zůstává None -> dashboard poctivě ukáže, kdy inzerát zachytil hlídač
         )
 
     @staticmethod
@@ -175,3 +177,4 @@ class BezrealitkyScraper(Scraper):
             return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
         except (ValueError, OSError, TypeError):
             return None
+

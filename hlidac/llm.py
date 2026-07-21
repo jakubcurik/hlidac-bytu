@@ -30,7 +30,7 @@ from .store import Store
 log = logging.getLogger("hlidac.llm")
 
 CACHE_DNY = 30          # popisy se nemění, výsledek LLM držíme dlouho
-CACHE_VER = "v2"        # verze extrakce — při změně promptu/schématu zvyš, ať se přepočítá
+CACHE_VER = "v4"        # verze extrakce — při změně promptu/schématu zvyš, ať se přepočítá
 
 # Povolené typy venkovního prostoru (enum pro LLM i mapování na atributy Listing)
 _OUTDOOR_MAP = {"balkon": "balcony", "terasa": "terrace", "lodzie": "loggia", "zahrada": "garden"}
@@ -39,11 +39,14 @@ SYSTEM_PROMPT = (
     "Jsi precizní analytik českých realitních inzerátů (pronájmy bytů). Z inzerátu vytáhni "
     "strukturovaná data pro výpočet CELKOVÉ měsíční ceny a pro filtrování. Řiď se přesně:\n"
     "\n"
-    "POPLATKY / ENERGIE (nejdůležitější — čti pozorně celý text i poznámku k ceně):\n"
+    "POPLATKY / ENERGIE (nejdůležitější): Dostaneš 'Poznámku k ceně' a 'Text inzerátu'. "
+    "Poznámka k ceně je NEJSPOLEHLIVĚJŠÍ zdroj poplatků (např. '+ služby a energie 3.500,-Kč "
+    "+ vratná kauce 25.000,-Kč') — čti ji jako první, pak teprve text.\n"
     "• mesicni_poplatky = MĚSÍČNÍ zálohy na energie a služby (teplo, voda, elektřina, plyn, odpad, "
-    "úklid, výtah, společné prostory, internet), pokud je v textu KONKRÉTNÍ částka. "
+    "úklid, výtah, společné prostory, internet), pokud je v poznámce či textu KONKRÉTNÍ částka. "
     "Zachyť obě slovosledné varianty: 'zálohy na energie 3.500,-' i 'nájem 15 000 + 5 000 za služby'. "
     "Sečti více měsíčních položek dohromady (např. 'služby 3000 + fond oprav 500' = 3500). "
+    "Když je částka vázaná na počet osob ('poplatky 3.554 Kč / 2 osoby'), vezmi ji tak, jak je uvedena. "
     "NEZAPOČÍTÁVEJ kauci, jistotu, provizi ani jiné jednorázové platby.\n"
     "• poplatky_v_najmu = true, pokud jsou energie/služby už ZAHRNUTÉ v nájmu ('včetně energií', "
     "'vč. inkasa', 'cena je konečná'). Pak mesicni_poplatky nech null.\n"
@@ -63,9 +66,17 @@ SYSTEM_PROMPT = (
     "plynou z textu. Předzahrádka/zahrada = 'zahrada'. Když nic, vrať prázdné pole.\n"
     "• rezervovano = true, pokud je inzerát označen jako rezervovaný, obsazený, pronajatý, "
     "'REZERVOVÁNO', 'již pronajato' apod.\n"
-    "• mazlicci = postoj k domácím zvířatům: 'zakaz' (jednoznačně 'bez zvířat', 'zvířata nejsou "
-    "povolena'), 'po_dohode' ('po dohodě', 'menší pes možný', 'dle dohody'), 'povoleno' "
-    "('zvířata vítána'), jinak 'neuvedeno'.\n"
+    "• mazlicci = postoj k domácím zvířatům. Projdi text pečlivě a zachyť KAŽDOU zmínku o zvířatech "
+    "či mazlíčcích, i nepřímou. Rozlišuj přesně:\n"
+    "  - 'zakaz' = výslovný zákaz či podmínka bez zvířat: 'bez domácích mazlíčků', 'zvířata nejsou "
+    "povolena', 'zákaz chovu zvířat', 'pouze nájemníci bez zvířat', 'nevhodné pro zvířata'.\n"
+    "  - 'nezadouci' = preference proti zvířatům, ale ne výslovný zákaz: 'ideálně bez mazlíčků', "
+    "'raději bez zvířat', 'upřednostníme zájemce bez zvířat', 'spíše nevhodné pro zvířata'.\n"
+    "  - 'po_dohode' = podmíněná možnost: 'zvíře po dohodě', 'menší pes možný', 'dle domluvy "
+    "s majitelem', 'kočka ano, pes ne'.\n"
+    "  - 'povoleno' = výslovně dovoleno/vítáno: 'mazlíčci vítáni', 'zvířata povolena'.\n"
+    "  - 'neuvedeno' = v textu není o zvířatech ani slovo.\n"
+    "  POZOR: 'ideálně/raději/přednostně bez zvířat' je 'nezadouci', NE 'po_dohode' ani 'zakaz'.\n"
     "• dispozice = např. '2+kk','3+1','garsoniera' (jen když z textu plyne). plocha_m2 = užitná "
     "plocha v m² (číslo). typ_stavby = 'cihlová'/'panelová'/'smíšená'/… (jen když plyne).\n"
     "• shrnuti = max 14 slov, česky, věcně, to podstatné pro rozhodování.\n"
@@ -89,7 +100,8 @@ _RESPONSE_SCHEMA = {
             "items": {"type": "STRING", "enum": ["balkon", "terasa", "lodzie", "zahrada"]},
         },
         "rezervovano": {"type": "BOOLEAN"},
-        "mazlicci": {"type": "STRING", "enum": ["povoleno", "zakaz", "po_dohode", "neuvedeno"]},
+        "mazlicci": {"type": "STRING",
+                     "enum": ["povoleno", "zakaz", "nezadouci", "po_dohode", "neuvedeno"]},
         "dispozice": {"type": "STRING", "nullable": True},
         "plocha_m2": {"type": "NUMBER", "nullable": True},
         "typ_stavby": {"type": "STRING", "nullable": True},
@@ -112,9 +124,9 @@ def _provider() -> dict | None:
         return {
             "kind": "gemini",
             "key": os.getenv("GEMINI_API_KEY"),
-            # alias 'latest' vždy míří na aktuální flash model (nezastará a je dostupný napříč klíči)
-            "model": model_override or "gemini-flash-latest",
-            "fallback_model": "gemini-2.5-flash-lite",  # kdyby primární nebyl dostupný (404)
+            "model": model_override or "gemini-3.6-flash",
+            # alias 'latest' vždy míří na aktuální flash model — záchrana, kdyby primární dal 404
+            "fallback_model": "gemini-flash-latest",
         }
     if os.getenv("OPENAI_API_KEY"):
         return {
@@ -225,15 +237,17 @@ def _parse_json(raw: str | None) -> dict | None:
     return None
 
 
-def extract(description: str, title: str = "", rent: int | None = None) -> dict | None:
-    """Vytáhne strukturovaná data z popisu. None, když není klíč / volání selže."""
+def extract(description: str, title: str = "", rent: int | None = None,
+            price_note: str = "") -> dict | None:
+    """Vytáhne strukturovaná data z popisu + poznámky k ceně. None, když není klíč / volání selže."""
     prov = _provider()
-    if not prov or not description:
+    if not prov or not (description or price_note):
         return None
     user = (
         f"Nájem (základní, měsíčně): {rent if rent else 'neuvedeno'} Kč.\n"
+        f"Poznámka k ceně (z portálu): {price_note.strip() or '—'}\n"
         f"Název inzerátu: {title}\n"
-        f"Text inzerátu:\n{description}"
+        f"Text inzerátu:\n{description or '—'}"
     )
     return _parse_json(_call(prov, user))
 
@@ -252,25 +266,28 @@ def _as_int(v) -> int | None:
 
 def _apply(listing: Listing, data: dict, allow_estimate: bool = True) -> None:
     """Aplikuje výsledek LLM na inzerát (poplatky, jednorázové platby, prostor, rezervace, mazlíčci)."""
-    # --- poplatky / celková cena (priorita: v nájmu > konkrétní částka > odhad) ---
-    real = _as_int(data.get("mesicni_poplatky"))
-    est = _as_int(data.get("poplatky_odhad"))
-    if data.get("poplatky_v_najmu") is True:
-        listing.fees = 0
-        listing.fees_estimated = False
-        listing.fees_note = "energie/služby v ceně nájmu"
-    elif real:
-        listing.fees = real
-        listing.fees_estimated = False
-        listing.fees_note = "z inzerátu"
-    elif allow_estimate and est:
-        listing.fees = est
-        listing.fees_estimated = True
-        note = "odhad (v inzerátu neuvedeno)"
-        if data.get("energie_zvlast_bez_castky") is True:
-            note = "odhad (energie zvlášť, částka neuvedena)"
-        listing.fees_note = note
-    # jinak fees necháme (může doplnit regex fallback ve scoring.infer_fees)
+    # --- poplatky / celková cena ---
+    # Strukturované pole z portálu (např. Sreality "Měsíční výdaje") má VŽDY přednost —
+    # LLM smí poplatky doplnit jen tam, kde portál nic nedal. Odhad NIKDY nepřebíjí známou částku.
+    if listing.fees is None:
+        real = _as_int(data.get("mesicni_poplatky"))
+        est = _as_int(data.get("poplatky_odhad"))
+        if data.get("poplatky_v_najmu") is True:
+            listing.fees = 0
+            listing.fees_estimated = False
+            listing.fees_note = "energie/služby v ceně nájmu"
+        elif real:
+            listing.fees = real
+            listing.fees_estimated = False
+            listing.fees_note = "z inzerátu"
+        elif allow_estimate and est:
+            listing.fees = est
+            listing.fees_estimated = True
+            note = "odhad (v inzerátu neuvedeno)"
+            if data.get("energie_zvlast_bez_castky") is True:
+                note = "odhad (energie zvlášť, částka neuvedena)"
+            listing.fees_note = note
+        # jinak fees necháme (může doplnit regex fallback ve scoring.infer_fees)
 
     # --- jednorázové platby + shrnutí ---
     kauce = _as_int(data.get("kauce"))
@@ -286,7 +303,7 @@ def _apply(listing: Listing, data: dict, allow_estimate: bool = True) -> None:
     if data.get("rezervovano") is True:
         listing.reserved = True
     mazl = data.get("mazlicci")
-    if mazl in ("povoleno", "zakaz", "po_dohode"):
+    if mazl in ("povoleno", "zakaz", "nezadouci", "po_dohode"):
         listing.pets = mazl
 
     # --- venkovní prostor: jen PŘIDÁVÁ, nikdy nemaže signál z portálu ---
@@ -313,12 +330,12 @@ def _cache_key(l: Listing) -> str:
 
 def enrich(listing: Listing, store: Store, cfg: Config) -> bool:
     """Doplní jeden inzerát daty z LLM (s cache). Vrací True, pokud jsou data k dispozici."""
-    if not listing.description:
+    if not (listing.description or listing.price_note):
         return False
     ck = _cache_key(listing)
     data = store.cache_get(ck, max_age_days=CACHE_DNY)
     if data is None:
-        data = extract(listing.description, listing.title, listing.price)
+        data = extract(listing.description, listing.title, listing.price, listing.price_note)
         if data is None:
             return False
         store.cache_set(ck, data)
@@ -338,7 +355,7 @@ def enrich_many(listings: list[Listing], store: Store, cfg: Config, workers: int
 
     # 1) cache hity vyřídíme rovnou (bez volání LLM)
     for l in listings:
-        if not l.description:
+        if not (l.description or l.price_note):
             continue
         ck = _cache_key(l)
         cached = store.cache_get(ck, max_age_days=CACHE_DNY)
@@ -354,7 +371,7 @@ def enrich_many(listings: list[Listing], store: Store, cfg: Config, workers: int
     # 2) chybějící stáhneme paralelně (jen síť, žádná DB v pracovních vláknech)
     def _fetch(item: tuple[Listing, str]):
         l, ck = item
-        return item, extract(l.description, l.title, l.price)
+        return item, extract(l.description, l.title, l.price, l.price_note)
 
     failed = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:

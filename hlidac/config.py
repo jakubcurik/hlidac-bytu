@@ -14,14 +14,17 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass
 class SearchCriteria:
     mesto: str = "Hradec Králové"
-    max_cena: int = 18000            # CELKOVÁ měsíční cena vč. poplatků/energií (pokud jsou známy)
+    max_cena: int = 20000            # CELKOVÁ měsíční cena vč. poplatků/energií (pokud jsou známy)
     min_plocha: float = 30
     min_dispozice: str = "1+kk"
-    vyzaduj_venkovni_prostor: bool = True
-    # Které typy venkovního prostoru se počítají do tvrdého filtru (lodžie záměrně NENÍ).
-    venkovni_typy: list = field(default_factory=lambda: ["balkon", "terasa", "zahrada"])
-    # Filtr mazlíčků: "jen_zakaz" (vyřadí jen jasný zákaz), "vse" (i nejednoznačné), "vypnuto".
-    mazlicci_filtr: str = "jen_zakaz"
+    # False = byty bez venkovního prostoru se NEvyřazují (jen se řadí níž);
+    # v dashboardu je na ně checkbox "jen s venkovním". True = tvrdě vyřadit už při zpracování.
+    vyzaduj_venkovni_prostor: bool = False
+    # Které typy venkovního prostoru se počítají (lodžie = zapuštěný balkon, bere se taky).
+    venkovni_typy: list = field(default_factory=lambda: ["balkon", "terasa", "lodzie", "zahrada"])
+    # Filtr mazlíčků: "vypnuto" (jen označit v přehledu — filtruje se checkboxem v dashboardu),
+    # "jen_zakaz" (vyřadí jasný zákaz už při zpracování), "vse" (i nejednoznačné).
+    mazlicci_filtr: str = "vypnuto"
     vyloucit_rezervovane: bool = True  # skrýt inzeráty označené jako rezervované/obsazené
     okoli: list = field(default_factory=list)  # povolené okolní obce navíc k městu (default: jen město)
 
@@ -57,15 +60,15 @@ def load_config(path: str | Path | None = None) -> Config:
         raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
 
     h = raw.get("hledani", {}) or {}
-    default_typy = ["balkon", "terasa", "zahrada"]
+    default_typy = ["balkon", "terasa", "lodzie", "zahrada"]
     search = SearchCriteria(
         mesto=h.get("mesto", "Hradec Králové"),
-        max_cena=int(h.get("max_cena", 18000)),
+        max_cena=int(h.get("max_cena", 20000)),
         min_plocha=float(h.get("min_plocha", 30)),
         min_dispozice=str(h.get("min_dispozice", "1+kk")),
-        vyzaduj_venkovni_prostor=bool(h.get("vyzaduj_venkovni_prostor", True)),
+        vyzaduj_venkovni_prostor=bool(h.get("vyzaduj_venkovni_prostor", False)),
         venkovni_typy=[str(x).strip().lower() for x in (h.get("venkovni_typy") or default_typy)],
-        mazlicci_filtr=str(h.get("mazlicci_filtr", "jen_zakaz")),
+        mazlicci_filtr=str(h.get("mazlicci_filtr", "vypnuto")),
         vyloucit_rezervovane=bool(h.get("vyloucit_rezervovane", True)),
         okoli=list(h.get("okoli", []) or []),
     )
