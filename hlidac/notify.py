@@ -47,15 +47,18 @@ def _caption(l: Listing) -> str:
     e = html.escape
     lines = [f"🏡 <b>{e(l.disposition or 'byt')}"
              + (f", {int(l.area)} m²" if l.area else "") + "</b>"]
-    if l.fees_known:
-        total = f"{l.total_price:,}".replace(",", " ")
-        zdroj = "odhad vč. poplatků" if l.fees_estimated else "vč. poplatků"
-        rent = f"{l.price:,}".replace(",", " ")
+    total = f"{l.total_price:,}".replace(",", " ") if l.total_price else "?"
+    rent = f"{l.price:,}".replace(",", " ") if l.price else "?"
+    if l.fees_estimated:
         fee = f"{l.fees:,}".replace(",", " ")
-        lines.append(f"💰 <b>{total} Kč/měs</b> ({zdroj}: {rent} + {fee})")
+        lines.append(f"💰 <b>~{total} Kč/měs</b> (nájem {rent} + odhad {fee})")
+    elif l.fees_known and l.fees == 0:
+        lines.append(f"💰 <b>{total} Kč/měs</b> (energie v ceně nájmu)")
+    elif l.fees_known:
+        fee = f"{l.fees:,}".replace(",", " ")
+        lines.append(f"💰 <b>{total} Kč/měs</b> (nájem {rent} + poplatky {fee})")
     else:
-        price = f"{l.price:,}".replace(",", " ") if l.price else "?"
-        lines.append(f"💰 <b>{price} Kč/měs</b> ⚠️ + poplatky (neuvedeny)")
+        lines.append(f"💰 <b>{rent} Kč/měs</b> ⚠️ + poplatky (neuvedeny)")
     tags = []
     if l.outdoor:
         tags.append("🌿 " + l.outdoor_label)

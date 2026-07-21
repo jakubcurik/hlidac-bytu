@@ -6,8 +6,9 @@ nový vyhovující byt tě upozorní na Telegramu**. Zároveň vygeneruje přehl
 
 Prohledává: **Sreality**, **Bezrealitky**, **Ulovdomov** a **iDNES Reality**.
 
-Nastavené je to na hledání v **Hradci Králové do 18 000 Kč/měs**, od 1+kk, ideálně 30 m²+,
-s důrazem na **balkon / terasu / lodžii / zahradu**. Vše se dá změnit v `config.yaml`.
+Nastavené je to na hledání v **Hradci Králové do 18 000 Kč/měs** (celkem vč. poplatků), od 1+kk,
+ideálně 30 m²+, a **zobrazí jen byty s venkovním prostorem** (balkon / terasa / zahrada).
+Vše se dá změnit v `config.yaml`.
 
 ---
 
@@ -15,16 +16,18 @@ s důrazem na **balkon / terasu / lodžii / zahradu**. Vše se dá změnit v `co
 
 1. Stáhne aktuální nabídky ze čtyř portálů (přes jejich veřejná data — žádné triky, žádné přihlašování).
 2. Nechá **jen byty v hledaném městě** (ne v celém okrese — Chlumec, Nový Bydžov apod. se vyřadí).
-3. **LLM** (Gemini) přečte popisy a spolehlivě z nich vytáhne **měsíční poplatky/energie**, kauci, provizi a krátké shrnutí.
-4. Vyřadí to, co neodpovídá (drahé podle **celkové ceny = nájem + poplatky**, malá dispozice…), a zbytek **oboduje**
-   (venkovní prostor = největší plus, dál plocha, celková cena, cihla vs. panel, stav).
+3. **Gemini** přečte každý popis a vytáhne z něj: **měsíční poplatky/energie** (i z vět typu „nájem 15 000 + 5 000 energie"),
+   kauci a provizi (umí i „ve výši jednoho nájmu"), **venkovní prostor**, jestli je byt **rezervovaný**,
+   **postoj k mazlíčkům** a krátké shrnutí. Když poplatky nikde nejsou, **odhadne** typické zálohy dle plochy.
+4. Vyřadí to, co nedává smysl: mimo rozpočet (**celková cena = nájem + poplatky**), malá dispozice,
+   **bez venkovního prostoru**, **rezervované/obsazené** a s **jasným zákazem zvířat**. Zbytek **oboduje**.
 5. Uloží si, co už vidělo (do `state.db`), takže pozná, co je **nové**.
-6. Vygeneruje dashboard `output/index.html` a na nové byty pošle **Telegram** notifikaci.
+6. Vygeneruje dashboard `output/index.html` (s **pokročilými filtry**) a na nové byty pošle **Telegram** notifikaci.
 
 Pustíš to jednou denně/hodinu (ručně nebo automaticky) a máš klid.
 
-> **Celková cena:** filtr i řazení počítají s nájmem **plus** poplatky/energie. Kde portál poplatky
-> neuvádí a nejde je vyčíst ani z popisu, byt se označí „poplatky neuvedeny" (reálná cena může být vyšší).
+> **Celková cena:** filtr i řazení počítají s nájmem **plus** poplatky/energie. Když poplatky nejdou zjistit,
+> Gemini je **odhadne podle plochy a dispozice** a byt se jasně označí štítkem „odhad ceny" (ověř si je na portálu).
 
 ---
 
@@ -132,15 +135,19 @@ Mělo by ti do Telegramu dorazit „✅ Test: hlídač je propojený".
 
 ---
 
-## 🧠 LLM zpracování (poplatky, energie, shrnutí)
+## 🧠 Zpracování přes Gemini (poplatky, venkovní prostor, rezervace, mazlíčci…)
 
-Portály uvádějí poplatky za energie často jen v textu popisu („zálohy 3.500,- Kč/měs") — obyčejné
-hledání to nespolehlivě vyčte. Proto popisy čte **LLM** a přesně z nich vytáhne měsíční poplatky
-(kvůli správné **celkové ceně**), kauci, provizi a krátké shrnutí.
+Portály uvádějí poplatky za energie často jen v textu popisu („zálohy 3.500,- Kč/měs", „nájem 15 000 + 5 000 energie")
+— obyčejné hledání to nespolehlivě vyčte. Proto každý popis čte **Gemini** (přes structured output, takže vrací
+přesná data) a vytáhne z něj:
 
-**Nastavení (doporučeno Gemini — má štědrý free tier):**
+- **měsíční poplatky/energie** pro správnou **celkovou cenu** (a když nikde nejsou, odhadne je dle plochy),
+- **kauci a provizi** — i relativní („ve výši jednoho nájmu" přepočítá na Kč),
+- **venkovní prostor** (balkon/terasa/lodžie/zahrada), **rezervaci**, **postoj k mazlíčkům** a krátké **shrnutí**.
 
-1. Vytvoř si klíč zdarma: **https://aistudio.google.com/apikey**
+**Nastavení (doporučeno Gemini — placený Tier 1 běží znatelně rychleji, ale stačí i free tier):**
+
+1. Vytvoř si klíč: **https://aistudio.google.com/apikey**
 2. Vlož ho do `.env`:
    ```
    GEMINI_API_KEY=tvůj_klíč
@@ -151,9 +158,9 @@ hledání to nespolehlivě vyčte. Proto popisy čte **LLM** a přesně z nich v
    ```
 
 > Máš raději OpenAI nebo Groq? Stačí místo toho vyplnit `OPENAI_API_KEY` nebo `GROQ_API_KEY`.
-> **Bez klíče to funguje taky** — jen se poplatky z textu vytahují jednodušším způsobem a víc bytů
-> bude „poplatky neuvedeny". LLM se dá vypnout v `config.yaml` (`pouzit_llm: false`).
-> Výsledky LLM se **cachují**, takže se stejný inzerát neposílá do modelu opakovaně (šetří kredit).
+> **Bez klíče to funguje taky** — poplatky se pak z textu vytahují jednodušším způsobem (a odhadují dle plochy).
+> Výsledky se **cachují**, takže se stejný inzerát neposílá do modelu opakovaně (šetří kredit).
+> Rychlost prvního běhu řídí `llm_workers` v `config.yaml` (na Tier 1 klidně 10–20).
 
 ## ⏰ Automatické spouštění
 
@@ -195,10 +202,13 @@ Aby to hlídalo samo, nastav si pravidelné spouštění.
 ```yaml
 hledani:
   mesto: "Hradec Králové"      # hledá se JEN v tomto městě (vč. čtvrtí); okolní obce se vyřadí
-  max_cena: 18000              # max. CELKOVÁ cena/měs = nájem + poplatky/energie (pokud jsou známy)
+  max_cena: 18000              # max. CELKOVÁ cena/měs = nájem + poplatky/energie (i odhadnuté)
   min_plocha: 30               # menší se nevyřadí, jen dostanou nižší skóre
   min_dispozice: "1+kk"        # nejmenší akceptovaná dispozice
-  vyzaduj_venkovni_prostor: false  # true = jen byty s balkonem/terasou/zahradou
+  vyzaduj_venkovni_prostor: true       # true = zobrazí JEN byty s venkovním prostorem
+  venkovni_typy: ["balkon", "terasa", "zahrada"]   # co se počítá (lodžii přidáš sem, když chceš)
+  mazlicci_filtr: "jen_zakaz"          # vyřadí byty s jasným zákazem zvířat ("vse" / "vypnuto")
+  vyloucit_rezervovane: true           # skrýt rezervované / obsazené inzeráty
   okoli: []                    # volitelně povol i okolní obce, např. ["Předměřice nad Labem"]
 
 zdroje:                        # kterýkoli portál můžeš vypnout
@@ -211,8 +221,16 @@ provoz:
   max_stran_na_zdroj: 10
   detail_cache_dny: 14
   posilat_telegram: true
-  pouzit_llm: true             # číst popisy přes LLM (poplatky/energie); bez API klíče se přeskočí
+  odhad_poplatku: true         # když poplatky nikde nejsou, nech je odhadnout (jasně se označí)
+  llm_workers: 10              # kolik inzerátů zpracovat paralelně (Tier 1 zvládne víc)
 ```
+
+### 🔎 Pokročilé filtry v dashboardu
+
+Dashboard `output/index.html` má nad výpisem interaktivní filtry (běží přímo v prohlížeči, nic se nenačítá znovu):
+**max. cena celkem**, **min. plocha**, **dispozice**, **typ stavby** (cihla/panel), a přepínače
+*jen s venkovním prostorem*, *jen jistá cena (bez odhadů)* a *jen nové*. Řadit jde podle skóre,
+nejnižší celkové ceny, plochy nebo ceny za m². Vpravo se ukazuje, kolik bytů filtru odpovídá.
 
 ---
 

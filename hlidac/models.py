@@ -22,23 +22,58 @@ def city_key(s: str | None) -> str:
     return re.sub(r"\s+", " ", ascii_str).strip()
 
 
-# Poplatky/služby/energie v textu, např. "poplatky za služby 3 500 Kč", "energie cca 2500,-"
-_FEE_RE = re.compile(
-    r"(?:poplat\w*|služ\w*|sluz\w*|energi\w*|inkas\w*|zálo\w*|zalo\w*)"
-    r"[^0-9]{0,30}?(\d[\d\s]{2,6})\s*(?:kč|kc|czk|,-)",
+# Slova, která JEDNOZNAČNĚ označují měsíční poplatky/energie/služby.
+_FEE_RE = re.compile(r"poplat\w*|služ\w*|sluz\w*|energi\w*|inkas\w*|zálo\w*|zalo\w*|náklad\w*|naklad\w*", re.I)
+# Slova jednorázových/nájemních plateb — když stojí TĚSNĚ před číslem, nejde o měsíční poplatky.
+_EXCLUDE_RE = re.compile(r"kauc\w*|jistot\w*|provi\w*|nájem\w*|najem\w*|nájm\w*|najm\w*|deposit\w*|vratn\w*", re.I)
+# Číslo (volitelně s Kč/,-): "3 500", "3.500,-", "5 000 Kč".
+_MONEY_NUM_RE = re.compile(r"(\d[\d\s\.]{1,7}\d|\d{3,})\s*(?:kč|kc|czk|,-|,‑)?", re.I)
+
+
+# Formulace, že energie/služby jsou už zahrnuté v nájmu.
+_INCLUDED_RE = re.compile(
+    r"(?:včetně|vč\.?|v\s?ceně|zahrnuje)\s+(?:energi|inkas|služ|sluz|vš\w*\s+poplat|vešker)"
+    r"|energi\w*\s+(?:jsou\s+)?(?:v\s+(?:ceně|nájmu)|zahrnut)"
+    r"|(?:cena|nájem\w*)\s+(?:je\s+)?konečn",
     re.I,
 )
 
 
+def fees_included_in_rent(text: str | None) -> bool:
+    """True, když z textu plyne, že energie/služby jsou už v ceně nájmu."""
+    return bool(text and _INCLUDED_RE.search(text))
+
+
+def _to_int(raw: str) -> int | None:
+    """'3 500' / '3.500' / '3500' -> 3500. Tečka i mezera = oddělovač tisíců."""
+    digits = re.sub(r"[\s\.]", "", raw)
+    return int(digits) if digits.isdigit() else None
+
+
 def parse_fees_from_text(text: str | None, rent: int | None = None) -> int | None:
-    """Konzervativně vytáhne měsíční poplatky/energie z volného textu popisu.
-    Vrací číslo jen v rozumném rozsahu (300–15000) a různé od samotného nájmu."""
+    """Konzervativně vytáhne MĚSÍČNÍ poplatky/energie/služby z volného textu.
+
+    Pro každé číslo se dívá na okolní kontext a bere ho jako poplatek jen tehdy,
+    když je poblíž poplatkové slovo (energie/služby/zálohy/náklady/…) a zároveň
+    TĚSNĚ před ním nestojí slovo o kauci/provizi/nájmu. Zvládá obě slovosledné
+    varianty ('zálohy na energie 3 500' i '5 000 Kč za energie') a ignoruje
+    jednorázové platby i sousední věty ('… 3 500 Kč. Kauce je 13 000 Kč')."""
     if not text:
         return None
-    for m in _FEE_RE.finditer(text):
-        num = int(re.sub(r"\s", "", m.group(1)))
-        if 300 <= num <= 15000 and (rent is None or num != rent):
-            return num
+    low = text.lower()
+    for m in _MONEY_NUM_RE.finditer(low):
+        num = _to_int(m.group(1))
+        if num is None or not (200 <= num <= 15000):
+            continue
+        if rent is not None and num == rent:
+            continue
+        s, e = m.start(), m.end()
+        context = low[max(0, s - 30):s] + " " + low[e:e + 20]  # okno kolem čísla
+        if not _FEE_RE.search(context):
+            continue  # poblíž není poplatkové slovo -> nejde o energie/služby
+        if _EXCLUDE_RE.search(low[max(0, s - 15):s]):
+            continue  # těsně před číslem je "kauce"/"provize"/"nájem" -> jednorázová platba
+        return num
     return None
 
 
@@ -115,10 +150,14 @@ class Listing:
     price: int | None = None        # měsíční nájem v Kč (základní, bez služeb pokud známo)
     price_note: str = ""            # poznámka k ceně ("+ služby", "vč. energií", …)
     fees: int | None = None         # služby/energie/poplatky zvlášť, pokud jsou známy
-    fees_estimated: bool = False    # True = poplatky odhadnuté z popisu, ne přímo z portálu
+    fees_estimated: bool = False    # True = poplatky odhadnuté (LLM/regex), ne přímo z portálu
+    fees_note: str = ""             # jak byly poplatky zjištěny ("odhad dle plochy", "energie zvlášť")
     deposit: int | None = None      # vratná kauce (jednorázová) — typicky z LLM
     commission: int | None = None   # provize RK (jednorázová) — typicky z LLM
     summary: str = ""               # krátké shrnutí inzerátu (z LLM)
+
+    reserved: bool = False          # inzerát označen jako rezervovaný / obsazený / pronajatý
+    pets: str | None = None         # postoj k mazlíčkům: "povoleno" | "zakaz" | "po_dohode" | None
 
     disposition: str = ""           # normalizováno na "2+kk"
     area: float | None = None       # užitná plocha v m²
@@ -157,21 +196,33 @@ class Listing:
 
     @property
     def outdoor(self) -> bool:
-        """Má byt jakýkoli venkovní prostor?"""
+        """Má byt jakýkoli venkovní prostor (vč. lodžie)?"""
         return bool(self.balcony or self.terrace or self.loggia or self.garden)
 
     @property
-    def outdoor_label(self) -> str:
-        parts = []
+    def outdoor_types(self) -> set[str]:
+        """Množina přítomných typů venkovního prostoru: {'balkon','terasa','lodzie','zahrada'}."""
+        t = set()
         if self.balcony:
-            parts.append("balkon")
+            t.add("balkon")
         if self.terrace:
-            parts.append("terasa")
+            t.add("terasa")
         if self.loggia:
-            parts.append("lodžie")
+            t.add("lodzie")
         if self.garden:
-            parts.append("zahrada")
-        return ", ".join(parts)
+            t.add("zahrada")
+        return t
+
+    def has_qualifying_outdoor(self, allowed: set[str]) -> bool:
+        """Má byt venkovní prostor, který se počítá do tvrdého filtru?
+        `allowed` = množina povolených typů z configu (typicky bez lodžie)."""
+        return bool(self.outdoor_types & set(allowed))
+
+    @property
+    def outdoor_label(self) -> str:
+        labels = {"balkon": "balkon", "terasa": "terasa", "lodzie": "lodžie", "zahrada": "zahrada"}
+        order = ["balkon", "terasa", "lodzie", "zahrada"]
+        return ", ".join(labels[t] for t in order if t in self.outdoor_types)
 
     @property
     def fees_known(self) -> bool:

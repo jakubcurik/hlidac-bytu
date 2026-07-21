@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 from .config import Config
-from .models import Listing, city_key, disposition_rank, parse_fees_from_text
+from .models import Listing, city_key, disposition_rank, parse_fees_from_text, fees_included_in_rent
 
 # Klíčová slova v popisu — kvalita zázemí
 POSITIVE_KW = {
@@ -64,15 +64,84 @@ def passes_locality(listing: Listing, cfg: Config) -> bool:
     return False  # neznámá lokalita -> přísně vyřadit (chceme opravdu jen Hradec)
 
 
-def infer_fees(listing: Listing) -> None:
-    """Když portál neuvedl poplatky, zkus je konzervativně vytáhnout z popisu/poznámky."""
+# --- Fallback detekce z textu (když LLM nedoběhne) ------------------------
+
+# Rezervace/obsazenost — konzervativně, ať se nechytá "rezervované parkovací stání".
+_RESERVED_RE = re.compile(
+    r"\bREZERVOV[ÁA]NO\b"
+    r"|(?:byt|inzer\w*|nemovitost\w*)\s+(?:je\s+)?(?:již\s+)?(?:rezervov|obsazen|pronajat)"
+    r"|již\s+(?:pronajat|obsazen|rezervov)"
+    r"|(?:rezervov|pronajat)\w*\.?\s*(?:dě?kuj|neaktuáln)",
+    re.I,
+)
+# Jednoznačný zákaz mazlíčků.
+_PETS_BAN_RE = re.compile(
+    r"bez\s+(?:domác\w*\s+)?zvířat"
+    r"|zvířat\w*\s+(?:nejsou|není)\s+(?:povolen|vítán|možn|dovolen)"
+    r"|(?:zákaz|nelze|nemožn\w*)\s+(?:chov\w*|drž\w*)?\s*(?:domác\w*\s+)?zvířat"
+    r"|zvířat\w*\s+zakázán|no\s+pets",
+    re.I,
+)
+# Mazlíčci po dohodě / podmíněně.
+_PETS_MAYBE_RE = re.compile(r"zvířat\w*.{0,15}(?:po\s+dohodě|dle\s+dohody)|(?:po|dle)\s+dohodě.{0,15}zvířat", re.I)
+
+
+def estimate_fees_by_area(listing: Listing) -> int | None:
+    """Hrubý odhad měsíčních záloh dle plochy — poslední záchrana, když nic jiného není.
+    Záměrně konzervativní; vždy se označí jako odhad."""
+    a = listing.area
+    if not a:
+        # bez plochy odhadneme podle dispozice (aspoň něco)
+        rank = disposition_rank(listing.disposition)
+        if rank and rank < 20:
+            return 2600
+        return 3400 if rank else None
+    if a < 35:
+        return 2600
+    if a < 55:
+        return 3200
+    if a < 75:
+        return 3800
+    return 4500
+
+
+def infer_fees(listing: Listing, cfg: Config) -> None:
+    """Doplní poplatky, když je LLM nedodalo. Pořadí: regex z textu → heuristický odhad.
+    Vše se jasně označí přes fees_estimated / fees_note."""
     if listing.fees is not None:
         return
     text = " ".join(p for p in [listing.price_note, listing.description] if p)
+    # energie už v nájmu?
+    if fees_included_in_rent(text):
+        listing.fees = 0
+        listing.fees_estimated = False
+        listing.fees_note = "energie/služby v ceně nájmu"
+        return
     fee = parse_fees_from_text(text, rent=listing.price)
     if fee:
         listing.fees = fee
-        listing.fees_estimated = True
+        listing.fees_estimated = False  # konkrétní částka z textu
+        listing.fees_note = "z popisu"
+        return
+    # poslední záchrana: odhad dle plochy (jen pokud povoleno)
+    if cfg.odhad_poplatku:
+        est = estimate_fees_by_area(listing)
+        if est:
+            listing.fees = est
+            listing.fees_estimated = True
+            listing.fees_note = "hrubý odhad dle plochy"
+
+
+def infer_flags(listing: Listing) -> None:
+    """Doplní rezervaci a postoj k mazlíčkům z textu, pokud je LLM nezjistilo."""
+    text = " ".join(p for p in [listing.title, listing.price_note, listing.description] if p)
+    if not listing.reserved and _RESERVED_RE.search(text):
+        listing.reserved = True
+    if listing.pets is None:
+        if _PETS_BAN_RE.search(text):
+            listing.pets = "zakaz"
+        elif _PETS_MAYBE_RE.search(text):
+            listing.pets = "po_dohode"
 
 
 def cheap_prefilter(listing: Listing, cfg: Config) -> bool:
@@ -96,6 +165,14 @@ def passes_hard_filter(listing: Listing, cfg: Config) -> bool:
     # jen hledané město
     if not passes_locality(listing, cfg):
         return False
+    # rezervované / obsazené pryč (pro kamarádku k ničemu)
+    if c.vyloucit_rezervovane and listing.reserved:
+        return False
+    # jasný zákaz mazlíčků pryč (dle nastavené přísnosti)
+    if c.mazlicci_filtr == "jen_zakaz" and listing.pets == "zakaz":
+        return False
+    if c.mazlicci_filtr == "vse" and listing.pets in ("zakaz", "po_dohode"):
+        return False
     # CELKOVÁ cena (nájem + poplatky, pokud známy) musí být v rozpočtu
     if listing.total_price is None or listing.total_price > c.max_cena:
         return False
@@ -103,8 +180,8 @@ def passes_hard_filter(listing: Listing, cfg: Config) -> bool:
     rank = disposition_rank(listing.disposition)
     if rank and rank < disposition_rank(c.min_dispozice):
         return False
-    # venkovní prostor jako tvrdá podmínka jen pokud si ho vyžádá
-    if c.vyzaduj_venkovni_prostor and not listing.outdoor:
+    # venkovní prostor jako tvrdá podmínka — jen kvalifikující typy (lodžie se nepočítá)
+    if c.vyzaduj_venkovni_prostor and not listing.has_qualifying_outdoor(c.venkovni_typy):
         return False
     return True
 
@@ -116,11 +193,14 @@ def score_listing(listing: Listing, cfg: Config) -> None:
     reasons: list[str] = []
 
     # --- venkovní prostor (hlavní priorita) ---
-    if listing.outdoor:
+    if listing.has_qualifying_outdoor(c.venkovni_typy):
         score += 25
         reasons.append(f"✅ venkovní prostor: {listing.outdoor_label}")
         if listing.terrace or listing.garden:
             score += 5  # terasa/zahrada je bonus navíc
+    elif listing.outdoor:  # má jen lodžii — nekvalifikuje se, ale není úplně bez
+        score += 4
+        reasons.append(f"➖ jen {listing.outdoor_label} (nebere se jako plnohodnotný venkovní prostor)")
     else:
         score -= 5
         reasons.append("➖ bez venkovního prostoru")
@@ -140,13 +220,19 @@ def score_listing(listing: Listing, cfg: Config) -> None:
     if total:
         bonus = (c.max_cena - total) / c.max_cena * 15
         score += bonus
-        if listing.fees:
-            zdroj = "odhad z popisu" if listing.fees_estimated else "vč. poplatků"
+        if listing.fees_estimated:
+            score -= 2  # odhad = mírná nejistota v ceně
             reasons.append(
-                f"💰 {total:,} Kč/měs ({zdroj}: nájem {listing.price:,} + {listing.fees:,})".replace(",", " ")
+                f"💰 ~{total:,} Kč/měs (nájem {listing.price:,} + odhad {listing.fees:,} – {listing.fees_note})".replace(",", " ")
+            )
+        elif listing.fees == 0:
+            reasons.append(f"💰 {total:,} Kč/měs (energie v ceně nájmu)".replace(",", " "))
+        elif listing.fees:
+            reasons.append(
+                f"💰 {total:,} Kč/měs (nájem {listing.price:,} + poplatky {listing.fees:,})".replace(",", " ")
             )
         else:
-            # poplatky neznámé — reálná cena může být vyšší; mírná penalizace + upozornění
+            # poplatky se nepodařilo zjistit ani odhadnout — reálná cena může být vyšší
             score -= 4
             reasons.append(f"💰 {listing.price:,} Kč/měs ⚠️ + poplatky (neuvedeny)".replace(",", " "))
 
@@ -182,15 +268,22 @@ def score_listing(listing: Listing, cfg: Config) -> None:
             reasons.append(f"⛔ {kw}")
             break
 
+    # --- mazlíčci (jen informativně; filtruje se v hard filteru) ---
+    if listing.pets == "po_dohode":
+        reasons.append("🐾 mazlíčci po dohodě")
+    elif listing.pets == "povoleno":
+        reasons.append("🐾 mazlíčci povoleni")
+
     listing.score = round(score, 1)
     listing.score_reasons = reasons
 
 
 def process(listings: list[Listing], cfg: Config) -> list[Listing]:
-    """Doplní poplatky z textu, odfiltruje, oboduje a seřadí (nejlepší první)."""
+    """Doplní poplatky/příznaky z textu, odfiltruje, oboduje a seřadí (nejlepší první)."""
     out = []
     for l in listings:
-        infer_fees(l)  # zkus doplnit poplatky z popisu, než počítáme celkovou cenu
+        infer_fees(l, cfg)   # doplň poplatky (regex/odhad), než počítáme celkovou cenu
+        infer_flags(l)       # doplň rezervaci a mazlíčky z textu, když je LLM nedodalo
         if passes_hard_filter(l, cfg):
             score_listing(l, cfg)
             out.append(l)

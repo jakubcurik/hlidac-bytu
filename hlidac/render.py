@@ -8,7 +8,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .config import Config
-from .models import Listing
+from .models import Listing, disposition_rank
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = ROOT / "hlidac" / "templates"
@@ -20,6 +20,18 @@ SOURCE_LABELS = {
     "ulovdomov": "Ulovdomov",
     "idnes": "iDNES Reality",
 }
+
+
+def _building_class(building_type: str | None) -> str:
+    """Zatřídí typ stavby pro filtrování v dashboardu: 'cihla' / 'panel' / 'jine' / ''."""
+    if not building_type:
+        return ""
+    bt = building_type.strip().lower()
+    if "cihl" in bt:
+        return "cihla"
+    if "panel" in bt:
+        return "panel"
+    return "jine"
 
 
 def render_dashboard(
@@ -50,32 +62,44 @@ def render_dashboard(
             "fees": l.fees,
             "fees_known": l.fees_known,
             "fees_estimated": l.fees_estimated,
+            "fees_note": l.fees_note,
             "total_price": l.total_price,
             "deposit": l.deposit,
             "commission": l.commission,
             "summary": l.summary,
             "area": int(l.area) if l.area else None,
             "disposition": l.disposition,
+            "disposition_rank": disposition_rank(l.disposition),
             "address": l.address or l.city,
             "city": l.city,
             "image": l.image,
             "score": l.score,
             "reasons": l.score_reasons,
             "outdoor": l.outdoor,
+            "outdoor_qualifying": l.has_qualifying_outdoor(cfg.search.venkovni_typy),
             "outdoor_label": l.outdoor_label,
             "building_type": l.building_type,
+            "building_class": _building_class(l.building_type),
             "building_condition": l.building_condition,
             "price_per_m2": l.price_per_m2,
+            "pets": l.pets,
             "source": l.source,
             "source_label": SOURCE_LABELS.get(l.source, l.source),
             "is_new": l.key in new_keys,
             "available_from": l.available_from,
         })
 
+    # nabídka dispozic pro filtr (seřazená dle ranku)
+    dispositions = sorted(
+        {c["disposition"] for c in cards if c["disposition"]},
+        key=lambda d: disposition_rank(d),
+    )
+
     stats = {
         "total": len(cards),
         "new": sum(1 for c in cards if c["is_new"]),
-        "outdoor": sum(1 for c in cards if c["outdoor"]),
+        "outdoor": sum(1 for c in cards if c["outdoor_qualifying"]),
+        "estimated": sum(1 for c in cards if c["fees_estimated"]),
         "by_source": {
             SOURCE_LABELS.get(s, s): sum(1 for c in cards if c["source"] == s)
             for s in SOURCE_LABELS
@@ -87,6 +111,7 @@ def render_dashboard(
         cards=cards,
         stats=stats,
         cfg=cfg,
+        dispositions=dispositions,
         generated=datetime.now().strftime("%-d. %-m. %Y %H:%M") if _supports_dash() else datetime.now().strftime("%d.%m.%Y %H:%M"),
     )
     out_path.write_text(html, encoding="utf-8")

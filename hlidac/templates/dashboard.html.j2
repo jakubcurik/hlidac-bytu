@@ -29,16 +29,32 @@
   .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;
     padding:6px 12px;font-size:.85rem;box-shadow:var(--shadow)}
   .chip b{color:var(--accent)}
+
   .toolbar{position:sticky;top:0;z-index:5;background:var(--bg);
-    padding:12px 0;margin:6px 0 18px;border-bottom:1px solid var(--line);
-    display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    padding:12px 0;margin:6px 0 18px;border-bottom:1px solid var(--line)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row + .row{margin-top:10px}
   .toolbar input[type=search],.toolbar select{
     background:var(--card);color:var(--text);border:1px solid var(--line);
     border-radius:8px;padding:8px 10px;font-size:.9rem}
-  .toolbar input[type=search]{flex:1;min-width:180px}
+  .toolbar input[type=search]{flex:1;min-width:200px}
+  .fbox{display:inline-flex;flex-direction:column;gap:3px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:6px 11px;box-shadow:var(--shadow)}
+  .fbox label{font-size:.7rem;color:var(--muted);letter-spacing:.02em}
+  .fbox .val{font-weight:700;color:var(--accent)}
+  .fbox input[type=range]{width:150px;accent-color:var(--accent);cursor:pointer}
+  .disp{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+  .dchip{cursor:pointer;user-select:none;border:1px solid var(--line);background:var(--card);
+    border-radius:999px;padding:5px 10px;font-size:.8rem;box-shadow:var(--shadow)}
+  .dchip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .pill{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
     background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:.85rem}
   .pill input{accent-color:var(--accent)}
+  .btn{cursor:pointer;background:transparent;color:var(--muted);border:1px solid var(--line);
+    border-radius:8px;padding:7px 11px;font-size:.85rem}
+  .btn:hover{color:var(--text)}
+  .count{margin-left:auto;color:var(--muted);font-size:.85rem;white-space:nowrap}
+
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
     box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .12s ease}
@@ -55,6 +71,7 @@
   .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
   .price{font-size:1.25rem;font-weight:750}
   .price small{font-size:.8rem;font-weight:500;color:var(--muted)}
+  .price.est{color:var(--warn)}
   .meta{color:var(--muted);font-size:.85rem}
   .addr{font-size:.85rem}
   .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
@@ -83,26 +100,65 @@
       <span class="chip"><b>{{ stats.total }}</b> bytů celkem</span>
       {% if stats.new %}<span class="chip">🆕 <b>{{ stats.new }}</b> nových</span>{% endif %}
       <span class="chip">🌿 <b>{{ stats.outdoor }}</b> s venkovním prostorem</span>
+      {% if stats.estimated %}<span class="chip">≈ <b>{{ stats.estimated }}</b> s odhadem poplatků</span>{% endif %}
       {% for src, n in stats.by_source.items() %}<span class="chip">{{ src }}: <b>{{ n }}</b></span>{% endfor %}
     </div>
   </header>
 
   <div class="toolbar">
-    <input type="search" id="q" placeholder="🔎 hledat v adrese / názvu…">
-    <label class="pill"><input type="checkbox" id="onlyOut"> jen s venkovním prostorem 🌿</label>
-    <label class="pill"><input type="checkbox" id="onlyNew"> jen nové 🆕</label>
-    <select id="sort">
-      <option value="score">Řadit: nejlepší shoda</option>
-      <option value="price">Řadit: nejlevnější</option>
-      <option value="area">Řadit: největší plocha</option>
-    </select>
+    <div class="row">
+      <input type="search" id="q" placeholder="🔎 hledat v adrese / názvu…">
+      <select id="sort">
+        <option value="score">Řadit: nejlepší shoda</option>
+        <option value="price">Řadit: nejlevnější (celkem)</option>
+        <option value="area">Řadit: největší plocha</option>
+        <option value="ppm">Řadit: nejlevnější za m²</option>
+      </select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="row">
+      <div class="fbox">
+        <label>Max. cena celkem: <span class="val" id="priceVal"></span> Kč</label>
+        <input type="range" id="priceMax" min="5000" max="{{ cfg.search.max_cena }}" step="500" value="{{ cfg.search.max_cena }}">
+      </div>
+      <div class="fbox">
+        <label>Min. plocha: <span class="val" id="areaVal"></span> m²</label>
+        <input type="range" id="areaMin" min="0" max="120" step="5" value="0">
+      </div>
+      <select id="building">
+        <option value="">Stavba: vše</option>
+        <option value="cihla">🧱 cihlová</option>
+        <option value="panel">🏢 panelová</option>
+        <option value="jine">jiná / neuvedeno</option>
+      </select>
+      <label class="pill"><input type="checkbox" id="onlyOut" {% if cfg.search.vyzaduj_venkovni_prostor %}checked{% endif %}> jen s venkovním 🌿</label>
+      <label class="pill"><input type="checkbox" id="onlyCertain"> jen jistá cena (bez odhadů)</label>
+      <label class="pill"><input type="checkbox" id="onlyNew"> jen nové 🆕</label>
+      <button class="btn" id="reset">↺ reset filtrů</button>
+    </div>
+    {% if dispositions %}
+    <div class="row">
+      <div class="disp">
+        <span style="font-size:.8rem;color:var(--muted)">Dispozice:</span>
+        {% for d in dispositions %}<span class="dchip" data-disp="{{ d }}">{{ d }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <div class="grid" id="grid">
     {% for c in cards %}
-    <article class="card" data-source="{{ c.source }}" data-outdoor="{{ 1 if c.outdoor else 0 }}"
-             data-new="{{ 1 if c.is_new else 0 }}" data-score="{{ c.score }}"
-             data-price="{{ c.total_price or c.price or 999999 }}" data-area="{{ c.area or 0 }}"
+    <article class="card"
+             data-source="{{ c.source }}"
+             data-outdoor="{{ 1 if c.outdoor_qualifying else 0 }}"
+             data-new="{{ 1 if c.is_new else 0 }}"
+             data-score="{{ c.score }}"
+             data-price="{{ c.total_price or c.price or 999999 }}"
+             data-area="{{ c.area or 0 }}"
+             data-ppm="{{ c.price_per_m2 or 999999 }}"
+             data-disp="{{ c.disposition }}"
+             data-building="{{ c.building_class }}"
+             data-certain="{{ 1 if (c.fees_known and not c.fees_estimated) else 0 }}"
              data-text="{{ (c.title ~ ' ' ~ c.address)|lower }}">
       <div class="thumb">
         {% if c.image %}<img loading="lazy" src="{{ c.image }}" alt="">{% else %}<div class="noimg">bez fotky</div>{% endif %}
@@ -111,9 +167,15 @@
         {% if c.is_new %}<span class="ribbon">NOVÉ</span>{% endif %}
       </div>
       <div class="body">
-        {% if c.fees_known %}
-        <div class="price">{{ c.total_price|tisic }} Kč <small>/ měs {% if c.fees_estimated %}(odhad vč. poplatků){% else %}vč. poplatků{% endif %}</small></div>
-        <div class="meta">nájem {{ c.price|tisic }} + poplatky {{ c.fees|tisic }}{% if c.fees_estimated %} (z popisu){% endif %}</div>
+        {% if c.fees_estimated %}
+        <div class="price est">~ {{ c.total_price|tisic }} Kč <small>/ měs (odhad)</small></div>
+        <div class="meta">nájem {{ c.price|tisic }} + odhad {{ c.fees|tisic }} <span title="{{ c.fees_note }}">· {{ c.fees_note }}</span></div>
+        {% elif c.fees_known and c.fees == 0 %}
+        <div class="price">{{ c.total_price|tisic }} Kč <small>/ měs (energie v ceně)</small></div>
+        <div class="meta">nájem {{ c.price|tisic }} · energie/služby v nájmu</div>
+        {% elif c.fees_known %}
+        <div class="price">{{ c.total_price|tisic }} Kč <small>/ měs vč. poplatků</small></div>
+        <div class="meta">nájem {{ c.price|tisic }} + poplatky {{ c.fees|tisic }}</div>
         {% else %}
         <div class="price">{{ c.price|tisic }} Kč <small>/ měs + poplatky</small></div>
         {% endif %}
@@ -121,13 +183,17 @@
         <div class="addr">📍 {{ c.address }}</div>
         {% if c.summary %}<div class="summary">💬 {{ c.summary }}</div>{% endif %}
         {% if c.deposit or c.commission %}
-        <div class="onetime">💼 jednorázově:{% if c.deposit %} kauce {{ c.deposit|tisic }} Kč{% endif %}{% if c.commission %}{% if c.deposit %} ·{% endif %} provize {{ c.commission|tisic }} Kč{% endif %}</div>
+        <div class="onetime">💼 jednorázově:{% if c.deposit %} kauce {{ c.deposit|tisic }} Kč{% endif %}{% if c.commission is not none %}{% if c.deposit %} ·{% endif %} provize {{ c.commission|tisic }} Kč{% endif %}</div>
         {% endif %}
         <div class="badges">
-          {% if c.outdoor %}<span class="badge out">🌿 {{ c.outdoor_label }}</span>{% endif %}
+          {% if c.outdoor_qualifying %}<span class="badge out">🌿 {{ c.outdoor_label }}</span>
+          {% elif c.outdoor %}<span class="badge info">jen {{ c.outdoor_label }}</span>{% endif %}
+          {% if c.fees_estimated %}<span class="badge warn">odhad ceny</span>{% endif %}
           {% if not c.fees_known %}<span class="badge warn">poplatky neuvedeny</span>{% endif %}
+          {% if c.pets == 'po_dohode' %}<span class="badge info">🐾 po dohodě</span>
+          {% elif c.pets == 'povoleno' %}<span class="badge out">🐾 mazlíčci OK</span>{% endif %}
           {% if c.building_condition %}<span class="badge info">{{ c.building_condition }}</span>{% endif %}
-          {% if c.building_type and 'anel' in c.building_type %}<span class="badge warn">panel</span>
+          {% if c.building_class == 'panel' %}<span class="badge warn">panel</span>
           {% elif c.building_type %}<span class="badge info">{{ c.building_type }}</span>{% endif %}
           {% if c.available_from %}<span class="badge info">od {{ c.available_from }}</span>{% endif %}
         </div>
@@ -140,11 +206,11 @@
     {% endfor %}
   </div>
 
-  <div class="empty" id="empty" style="display:none">Nic neodpovídá filtru 🤷</div>
+  <div class="empty" id="empty" style="display:none">Nic neodpovídá filtru 🤷 — zkus uvolnit kritéria.</div>
 
   <footer>
     Vygeneroval Hlídač nájemních bytů · data ze Sreality, Bezrealitky, Ulovdomov a iDNES Reality.<br>
-    Skóre je jen pomůcka pro řazení — vždy si inzerát ověř na webu portálu.
+    Ceny s „odhadem" mají poplatky dopočítané (v inzerátu chyběly) — vždy si je ověř na webu portálu.
   </footer>
 </div>
 
@@ -152,23 +218,50 @@
   const grid = document.getElementById('grid');
   const cards = Array.from(grid.children);
   const q = document.getElementById('q');
+  const priceMax = document.getElementById('priceMax');
+  const areaMin = document.getElementById('areaMin');
+  const building = document.getElementById('building');
   const onlyOut = document.getElementById('onlyOut');
+  const onlyCertain = document.getElementById('onlyCertain');
   const onlyNew = document.getElementById('onlyNew');
   const sortSel = document.getElementById('sort');
   const empty = document.getElementById('empty');
+  const count = document.getElementById('count');
+  const priceVal = document.getElementById('priceVal');
+  const areaVal = document.getElementById('areaVal');
+  const dchips = Array.from(document.querySelectorAll('.dchip'));
+
+  // horní hranici plochy nastav podle reálných dat
+  const maxArea = Math.max(60, ...cards.map(c => +c.dataset.area || 0));
+  areaMin.max = Math.ceil(maxArea / 5) * 5;
+
+  const fmt = n => n.toLocaleString('cs-CZ').replace(/ /g, ' ');
+  const activeDisp = () => dchips.filter(d => d.classList.contains('active')).map(d => d.dataset.disp);
 
   function apply(){
     const term = q.value.trim().toLowerCase();
+    const pMax = +priceMax.value;
+    const aMin = +areaMin.value;
+    const bld = building.value;
+    const disps = activeDisp();
+    priceVal.textContent = fmt(pMax);
+    areaVal.textContent = aMin;
     let visible = 0;
     cards.forEach(c => {
       let ok = true;
       if (term && !c.dataset.text.includes(term)) ok = false;
+      if (+c.dataset.price > pMax) ok = false;
+      if (aMin > 0 && (+c.dataset.area) < aMin) ok = false;   // 0 m² = neznámá plocha se schová jen při aMin>0
+      if (bld && c.dataset.building !== bld) ok = false;
+      if (disps.length && !disps.includes(c.dataset.disp)) ok = false;
       if (onlyOut.checked && c.dataset.outdoor !== '1') ok = false;
+      if (onlyCertain.checked && c.dataset.certain !== '1') ok = false;
       if (onlyNew.checked && c.dataset.new !== '1') ok = false;
       c.style.display = ok ? '' : 'none';
       if (ok) visible++;
     });
     empty.style.display = visible ? 'none' : 'block';
+    count.textContent = 'Zobrazeno ' + visible + ' z ' + cards.length;
   }
 
   function sortCards(){
@@ -176,13 +269,24 @@
     const arr = cards.slice().sort((a,b) => {
       if (key === 'price') return (+a.dataset.price) - (+b.dataset.price);
       if (key === 'area')  return (+b.dataset.area) - (+a.dataset.area);
+      if (key === 'ppm')   return (+a.dataset.ppm) - (+b.dataset.ppm);
       return (+b.dataset.score) - (+a.dataset.score);
     });
     arr.forEach(c => grid.appendChild(c));
   }
 
-  [q, onlyOut, onlyNew].forEach(el => el.addEventListener('input', apply));
+  dchips.forEach(d => d.addEventListener('click', () => { d.classList.toggle('active'); apply(); }));
+  [q, priceMax, areaMin, building, onlyOut, onlyCertain, onlyNew].forEach(el => el.addEventListener('input', apply));
   sortSel.addEventListener('change', sortCards);
+  document.getElementById('reset').addEventListener('click', () => {
+    q.value = ''; priceMax.value = priceMax.max; areaMin.value = 0; building.value = '';
+    onlyOut.checked = {{ 'true' if cfg.search.vyzaduj_venkovni_prostor else 'false' }};
+    onlyCertain.checked = false; onlyNew.checked = false;
+    dchips.forEach(d => d.classList.remove('active'));
+    apply();
+  });
+
+  apply();
 </script>
 </body>
 </html>

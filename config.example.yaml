@@ -7,18 +7,28 @@
 
 hledani:
   mesto: "Hradec Králové"      # hledá se POUZE v tomto městě (vč. jeho čtvrtí), okolní obce se vyřadí
-  max_cena: 18000              # max. CELKOVÁ měsíční cena v Kč = nájem + poplatky/energie (pokud jsou známy)
+  max_cena: 18000              # max. CELKOVÁ měsíční cena v Kč = nájem + poplatky/energie (i odhadnuté)
   min_plocha: 30               # minimální plocha v m² (menší se nevyřadí, jen dostanou nižší skóre)
   min_dispozice: "1+kk"        # nejmenší akceptovaná dispozice (1+kk, 1+1, 2+kk, …)
+
+  # Venkovní prostor je HLAVNÍ priorita.
+  # true  = zobrazí se POUZE byty s venkovním prostorem (typy níže).
+  # false = byty bez venkovního prostoru se nevyřadí, jen se řadí níž.
+  vyzaduj_venkovni_prostor: true
+  # Které typy se počítají jako plnohodnotný venkovní prostor (lodžie = zapuštěný balkon,
+  # ve výchozím stavu se NEbere). Můžeš přidat "lodzie", pokud ti nevadí.
+  venkovni_typy: ["balkon", "terasa", "zahrada"]
+
+  # Mazlíčci: "jen_zakaz" = vyřadí jen inzeráty s jasným zákazem zvířat (doporučeno),
+  #           "vse" = vyřadí i nejednoznačné ("po dohodě"), "vypnuto" = nefiltrovat.
+  mazlicci_filtr: "jen_zakaz"
+
+  # Skrýt inzeráty označené jako rezervované / obsazené / již pronajaté.
+  vyloucit_rezervovane: true
 
   # Volitelně povol i okolní obce (default prázdné = opravdu jen město výše).
   # Např.:  okoli: ["Třebechovice pod Orebem", "Předměřice nad Labem"]
   okoli: []
-
-  # Venkovní prostor (balkon / terasa / lodžie / zahrada) je HLAVNÍ priorita.
-  # false = byty bez venkovního prostoru se nevyřadí, jen se řadí níž.
-  # true  = zobrazí se POUZE byty s venkovním prostorem.
-  vyzaduj_venkovni_prostor: false
 
 # Které portály prohledávat (můžeš kterýkoli vypnout na false)
 zdroje:
@@ -32,3 +42,8 @@ provoz:
   max_stran_na_zdroj: 10       # kolik stránek výsledků max projít u každého portálu
   detail_cache_dny: 14         # jak dlouho držet stažený detail bytu v cache (šetří požadavky)
   posilat_telegram: true       # posílat notifikace na Telegram (jinak jen dashboard)
+
+  # Zpracování inzerátů přes Gemini/LLM (spolehlivé poplatky, kauce, venkovní prostor…).
+  # Vyžaduje API klíč v .env (GEMINI_API_KEY). Bez klíče se použije jen textový fallback.
+  odhad_poplatku: true         # když poplatky nikde nejsou, nech je odhadnout (jasně se označí)
+  llm_workers: 10              # kolik inzerátů zpracovat paralelně (Tier 1 zvládne víc = rychlejší)
